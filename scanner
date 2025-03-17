@@ -1,0 +1,94 @@
+import streamlit as st
+import gspread
+from oauth2client.service_account import ServiceAccountCredentials
+import pandas as pd
+
+# Google Sheets API setup
+scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
+creds = ServiceAccountCredentials.from_json_keyfile_name("google_sheets_credentials.json", scope)
+client = gspread.authorize(creds)
+sheet = client.open("SaaS Growth Data").sheet1
+
+class SaaSGrowthScanner:
+    def __init__(self, customers, users, mrr, conversion_rate, user_growth):
+        self.customers = customers
+        self.users = users
+        self.mrr = mrr
+        self.conversion_rate = conversion_rate / 100  # Convert percentage to decimal
+        self.user_growth = user_growth
+    
+    def calculate_kpis(self):
+        arpa = self.mrr / self.customers if self.customers else 0
+        arpu = self.mrr / self.users if self.users else 0
+        avg_users_per_customer = self.users / self.customers if self.customers else 0
+        return arpa, arpu, avg_users_per_customer
+    
+    def required_growth(self, target_users):
+        needed_users = target_users - self.users
+        needed_customers = needed_users / (self.users / self.customers) if self.customers else 0
+        needed_leads = needed_customers / self.conversion_rate if self.conversion_rate else 0
+        return needed_users, needed_customers, needed_leads
+    
+    def time_to_goal(self, target_users):
+        needed_users, _, _ = self.required_growth(target_users)
+        months_needed = needed_users / self.user_growth if self.user_growth else float('inf')
+        return months_needed
+    
+    def benchmark_comparison(self, arpa, arpu):
+        benchmark_arpa = 60  # Example benchmark value
+        benchmark_arpu = 15  # Example benchmark value
+        
+        arpa_status = "above" if arpa > benchmark_arpa else "below"
+        arpu_status = "above" if arpu > benchmark_arpu else "below"
+        
+        return arpa_status, arpu_status
+    
+    def generate_report(self, target_users):
+        arpa, arpu, avg_users_per_customer = self.calculate_kpis()
+        needed_users, needed_customers, needed_leads = self.required_growth(target_users)
+        months_needed = self.time_to_goal(target_users)
+        arpa_status, arpu_status = self.benchmark_comparison(arpa, arpu)
+        
+        report = f"""
+        ## SaaS Growth Analysis
+        ---
+        🔹 **ARPA (Revenue per Customer)**: €{arpa:.2f} ({arpa_status} benchmark)  
+        🔹 **ARPU (Revenue per User)**: €{arpu:.2f} ({arpu_status} benchmark)  
+        🔹 **Average Users per Customer**: {avg_users_per_customer:.2f}  
+        
+        ### To reach {target_users} users:
+        - **Required additional users**: {needed_users:.0f}  
+        - **Required new customers**: {needed_customers:.0f}  
+        - **Required leads** (based on {self.conversion_rate * 100}% conversion): {needed_leads:.0f}  
+        - **Estimated time to goal** (at current growth rate): {months_needed:.1f} months  
+        
+        ### 🚀 Recommendations:
+        - If time to goal is too long, consider increasing conversion rate or lead volume.
+        - If ARPA is low, consider pricing changes or upsell strategies.
+        - If growth is slow, analyze acquisition channels and customer engagement.
+        
+        Want a deeper analysis? Add retention & churn data for a full growth strategy! 🎯
+        """
+        
+        return report
+
+    def save_to_google_sheets(self, target_users):
+        data = [self.customers, self.users, self.mrr, self.conversion_rate * 100, self.user_growth, target_users]
+        sheet.append_row(data)
+
+# Streamlit UI for interactive user input
+st.title("📈 SaaS Growth Scanner")
+
+customers = st.number_input("Current number of customers", min_value=1, value=180)
+users = st.number_input("Current number of users", min_value=1, value=800)
+mrr = st.number_input("Current Monthly Recurring Revenue (€)", min_value=1, value=10000)
+conversion_rate = st.number_input("Signup to customer conversion rate (%)", min_value=1.0, max_value=100.0, value=80.0)
+user_growth = st.number_input("Current user growth per month", min_value=1, value=30)
+target_users = st.number_input("Target number of users", min_value=users+1, value=1600)
+
+if st.button("Analyze Growth"):
+    scanner = SaaSGrowthScanner(customers, users, mrr, conversion_rate, user_growth)
+    report = scanner.generate_report(target_users)
+    scanner.save_to_google_sheets(target_users)
+    st.markdown(report)
+    st.success("✅ Data saved to Google Sheets!")
