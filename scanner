@@ -2,12 +2,13 @@ import streamlit as st
 import gspread
 from oauth2client.service_account import ServiceAccountCredentials
 import pandas as pd
+import time
 
 # Google Sheets API setup
 scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
 creds = ServiceAccountCredentials.from_json_keyfile_name("google_sheets_credentials.json", scope)
 client = gspread.authorize(creds)
-sheet = client.open("SaaS Growth Data").sheet1
+sheet = client.open("SaaS Growth Form Data").sheet1  # Google Form responses sheet
 
 class SaaSGrowthScanner:
     def __init__(self, customers, users, mrr, conversion_rate, user_growth):
@@ -72,23 +73,26 @@ class SaaSGrowthScanner:
         
         return report
 
-    def save_to_google_sheets(self, target_users):
-        data = [self.customers, self.users, self.mrr, self.conversion_rate * 100, self.user_growth, target_users]
-        sheet.append_row(data)
+# Streamlit UI for interactive processing of Google Form Data
+st.title("📈 SaaS Growth Scanner - Google Form Responses")
 
-# Streamlit UI for interactive user input
-st.title("📈 SaaS Growth Scanner")
-
-customers = st.number_input("Current number of customers", min_value=1, value=180)
-users = st.number_input("Current number of users", min_value=1, value=800)
-mrr = st.number_input("Current Monthly Recurring Revenue (€)", min_value=1, value=10000)
-conversion_rate = st.number_input("Signup to customer conversion rate (%)", min_value=1.0, max_value=100.0, value=80.0)
-user_growth = st.number_input("Current user growth per month", min_value=1, value=30)
-target_users = st.number_input("Target number of users", min_value=users+1, value=1600)
-
-if st.button("Analyze Growth"):
-    scanner = SaaSGrowthScanner(customers, users, mrr, conversion_rate, user_growth)
-    report = scanner.generate_report(target_users)
-    scanner.save_to_google_sheets(target_users)
-    st.markdown(report)
-    st.success("✅ Data saved to Google Sheets!")
+if st.button("Fetch Latest Google Form Data"):
+    st.info("Fetching latest data...")
+    time.sleep(2)
+    data = sheet.get_all_records()
+    
+    if data:
+        latest_entry = data[-1]  # Get the most recent response
+        customers = int(latest_entry["Hoeveel klanten heb je momenteel?"])
+        users = int(latest_entry["Hoeveel actieve gebruikers heb je?"])
+        mrr = int(latest_entry["Wat is je maandelijkse terugkerende omzet (MRR)?"])
+        conversion_rate = float(latest_entry["Wat is je signup → klant conversiepercentage?"])
+        user_growth = int(latest_entry["Hoeveel nieuwe gebruikers groeien er per maand bij?"])
+        target_users = users + 800  # Example target to double growth
+        
+        scanner = SaaSGrowthScanner(customers, users, mrr, conversion_rate, user_growth)
+        report = scanner.generate_report(target_users)
+        
+        st.markdown(report)
+    else:
+        st.warning("No responses found in Google Form.")
